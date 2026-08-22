@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>家族の会話モニター（確定・未確定色分け版）</title>
+    <title>家族の会話モニター（ペケ対応版）</title>
     <style>
         body {
             background-color: #2b2c2f;
@@ -25,14 +25,10 @@
             font-size: 4.5vw; font-weight: bold; text-align: left;
             line-height: 1.7; width: 85%; height: 8.5em;
             word-break: break-all; overflow: hidden;
-            transition: opacity 1.5s;
+            transition: opacity 1.5s; /* フェードアウト用 */
         }
 
-        /* 確定した文字の色 */
-        .final { color: #ffffff; }
-        /* 推測中（未確定）の文字の色 */
-        .interim { color: #888888; font-style: italic; }
-
+        /* 点滅アニメーションの設定 */
         .blink {
             animation: blink-animation 0.5s steps(5, start) 3;
         }
@@ -40,6 +36,7 @@
             to { visibility: hidden; }
         }
 
+        /* フェードアウト中の透明度 */
         .fade-out { opacity: 0; }
 
         #status {
@@ -49,6 +46,7 @@
         .listening { background-color: #ff4757; color: #fff; box-shadow: 0 0 20px rgba(255,71,87,0.5); }
         .waiting { background-color: #57606f; color: #ced6e0; }
 
+        /* 左下のガイド表示 */
         #guide {
             position: fixed; bottom: 20px; left: 20px; color: #888;
             font-size: 1rem; border-left: 3px solid #555; padding-left: 10px;
@@ -67,26 +65,22 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
         recognition.lang = 'ja-JP';
-        recognition.interimResults = true; // 途中経過を取得
-        recognition.continuous = true;     // 連続認識
+        recognition.interimResults = true;
+        recognition.continuous = true;
 
         const resultDisplay = document.getElementById('result-text');
         const statusDisplay = document.getElementById('status');
         const bg = document.getElementById('bg');
 
         let isListening = false;
-        let isResetting = false;
-
-        // 表示の初期化
-        const clearDisplay = () => {
-            resultDisplay.innerHTML = '';
-        };
+        let isResetting = false; // 「ペケ」実行中のフラグ
 
         const toggle = () => {
             if (isListening) { isListening = false; recognition.stop(); }
             else { isListening = true; recognition.start(); }
         };
 
+        // マウス操作：ワイヤレスマウスのリモコン化
         window.onmousedown = (e) => { e.preventDefault(); toggle(); };
         window.oncontextmenu = (e) => { e.preventDefault(); };
         window.onkeydown = (e) => { if(['Space', 'Enter', 'PageUp', 'PageDown'].includes(e.code)) toggle(); };
@@ -96,15 +90,14 @@
             statusDisplay.innerText = "文字を出しています";
             statusDisplay.className = "listening";
             bg.className = "on-mode";
-            clearDisplay();
+            resultDisplay.innerText = "";
             resultDisplay.classList.remove('blink', 'fade-out');
             isResetting = false;
         };
 
         recognition.onend = () => {
-            if (isListening) { 
-                try { recognition.start(); } catch(e) {} 
-            } else {
+            if (isListening) { recognition.start(); }
+            else {
                 statusDisplay.innerText = "お休み中";
                 statusDisplay.className = "waiting";
                 bg.className = "";
@@ -112,61 +105,48 @@
         };
 
         recognition.onresult = (event) => {
-            if (isResetting) return;
+            if (isResetting) return; // リセット中は何もしない
 
-            let finalTranscript = '';   // 確定した文章
-            let interimTranscript = ''; // 現在推測中の文章
-
+            let transcript = '';
             for (let i = event.resultIndex; i < event.results.length; i++) {
-                let text = event.results[i][0].transcript;
-                
-                // 辞書による置換処理（確定・未確定両方に適用）
-                if (typeof customDictionary !== 'undefined') {
-                    Object.keys(customDictionary).forEach(key => {
-                        text = text.replace(new RegExp(key, 'g'), customDictionary[key]);
-                    });
-                }
-
-                if (event.results[i].isFinal) {
-                    finalTranscript += text;
-                } else {
-                    interimTranscript += text;
-                }
+                transcript = event.results[i][0].transcript;
             }
 
-            // 「ペケ」チェック（確定した文章の中に含まれたら実行）
-            if (finalTranscript.includes("ペケ") || interimTranscript.includes("ペケ") ||
-                finalTranscript.includes("ぺけ") || interimTranscript.includes("ぺけ")) {
+            // 「ペケ」という言葉が含まれているかチェック
+            if (transcript.includes("ペケ") || transcript.includes("ぺけ")) {
                 handlePeke();
                 return;
             }
 
-            // HTMLの書き換え（色分けして表示）
-            // 既に表示されている確定済みの後ろに、今回の確定分と未確定分を乗せる
-            resultDisplay.innerHTML = `<span class="final">${finalTranscript}</span><span class="interim">${interimTranscript}</span>`;
+            // 辞書による置換
+            if (typeof customDictionary !== 'undefined') {
+                Object.keys(customDictionary).forEach(key => {
+                    transcript = transcript.replace(new RegExp(key, 'g'), customDictionary[key]);
+                });
+            }
 
-            // 画面溢れチェック
+            resultDisplay.innerText = transcript;
+
             if (resultDisplay.scrollHeight > resultDisplay.clientHeight) {
-                clearDisplay();
-                // 溢れたら一度止めて再開（リフレッシュ）
-                recognition.stop();
+                resultDisplay.innerText = ""; recognition.stop();
             }
         };
 
+        // 「ペケ」が言われた時の処理
         function handlePeke() {
             isResetting = true;
-            resultDisplay.classList.add('blink');
+            resultDisplay.classList.add('blink'); // 点滅開始
 
             setTimeout(() => {
-                resultDisplay.classList.add('fade-out');
-            }, 1000);
+                resultDisplay.classList.add('fade-out'); // フェードアウト開始
+            }, 1000); // 1秒点滅させた後に消え始める
 
             setTimeout(() => {
-                clearDisplay();
+                resultDisplay.innerText = "";
                 resultDisplay.classList.remove('blink', 'fade-out');
                 isResetting = false;
-                recognition.stop();
-            }, 2500);
+                recognition.stop(); // 一度止めてリセット
+            }, 2500); // 合計2.5秒後に完全消去
         }
     </script>
 </body>
