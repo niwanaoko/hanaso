@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>家族の会話モニター（確定・未確定色分け版）</title>
+    <style>
+        body {
+            background-color: #2b2c2f;
+            color: #f0f0f0;
+            font-family: "Hiragino Sans", "Meiryo", sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            transition: background-color 0.3s;
+            overflow: hidden;
+        }
+        body.on-mode { background-color: #1a2a3a; }
+
+        #main-area {
+            flex: 1; display: flex; align-items: flex-start;
+            justify-content: center; padding-top: 10vh;
+        }
+
+        #result-text {
+            font-size: 4.5vw; font-weight: bold; text-align: left;
+            line-height: 1.7; width: 85%; height: 8.5em;
+            word-break: break-all; overflow: hidden;
+            transition: opacity 1.5s;
+        }
+
+        /* 確定した文字の色 */
+        .final { color: #ffffff; }
+        /* 推測中（未確定）の文字の色 */
+        .interim { color: #888888; font-style: italic; }
+
+        .blink {
+            animation: blink-animation 0.5s steps(5, start) 3;
+        }
+        @keyframes blink-animation {
+            to { visibility: hidden; }
+        }
+
+        .fade-out { opacity: 0; }
+
+        #status {
+            position: fixed; top: 20px; right: 20px; font-size: 1.5rem;
+            padding: 15px 30px; border-radius: 12px; font-weight: bold;
+        }
+        .listening { background-color: #ff4757; color: #fff; box-shadow: 0 0 20px rgba(255,71,87,0.5); }
+        .waiting { background-color: #57606f; color: #ced6e0; }
+
+        #guide {
+            position: fixed; bottom: 20px; left: 20px; color: #888;
+            font-size: 1rem; border-left: 3px solid #555; padding-left: 10px;
+        }
+    </style>
+</head>
+<body id="bg">
+
+    <div id="status" class="waiting">お休み中</div>
+    <div id="guide">※間違いは「ペケ」と言うと消去されます</div>
+    <div id="main-area"><div id="result-text"></div></div>
+
+    <script src="dictionary.js"></script>
+
+    <script>
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = true; // 途中経過を取得
+        recognition.continuous = true;     // 連続認識
+
+        const resultDisplay = document.getElementById('result-text');
+        const statusDisplay = document.getElementById('status');
+        const bg = document.getElementById('bg');
+
+        let isListening = false;
+        let isResetting = false;
+
+        // 表示の初期化
+        const clearDisplay = () => {
+            resultDisplay.innerHTML = '';
+        };
+
+        const toggle = () => {
+            if (isListening) { isListening = false; recognition.stop(); }
+            else { isListening = true; recognition.start(); }
+        };
+
+        window.onmousedown = (e) => { e.preventDefault(); toggle(); };
+        window.oncontextmenu = (e) => { e.preventDefault(); };
+        window.onkeydown = (e) => { if(['Space', 'Enter', 'PageUp', 'PageDown'].includes(e.code)) toggle(); };
+
+        recognition.onstart = () => {
+            isListening = true;
+            statusDisplay.innerText = "文字を出しています";
+            statusDisplay.className = "listening";
+            bg.className = "on-mode";
+            clearDisplay();
+            resultDisplay.classList.remove('blink', 'fade-out');
+            isResetting = false;
+        };
+
+        recognition.onend = () => {
+            if (isListening) { 
+                try { recognition.start(); } catch(e) {} 
+            } else {
+                statusDisplay.innerText = "お休み中";
+                statusDisplay.className = "waiting";
+                bg.className = "";
+            }
+        };
+
+        recognition.onresult = (event) => {
+            if (isResetting) return;
+
+            let finalTranscript = '';   // 確定した文章
+            let interimTranscript = ''; // 現在推測中の文章
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                let text = event.results[i][0].transcript;
+                
+                // 辞書による置換処理（確定・未確定両方に適用）
+                if (typeof customDictionary !== 'undefined') {
+                    Object.keys(customDictionary).forEach(key => {
+                        text = text.replace(new RegExp(key, 'g'), customDictionary[key]);
+                    });
+                }
+
+                if (event.results[i].isFinal) {
+                    finalTranscript += text;
+                } else {
+                    interimTranscript += text;
+                }
+            }
+
+            // 「ペケ」チェック（確定した文章の中に含まれたら実行）
+            if (finalTranscript.includes("ペケ") || interimTranscript.includes("ペケ") ||
+                finalTranscript.includes("ぺけ") || interimTranscript.includes("ぺけ")) {
+                handlePeke();
+                return;
+            }
+
+            // HTMLの書き換え（色分けして表示）
+            // 既に表示されている確定済みの後ろに、今回の確定分と未確定分を乗せる
+            resultDisplay.innerHTML = `<span class="final">${finalTranscript}</span><span class="interim">${interimTranscript}</span>`;
+
+            // 画面溢れチェック
+            if (resultDisplay.scrollHeight > resultDisplay.clientHeight) {
+                clearDisplay();
+                // 溢れたら一度止めて再開（リフレッシュ）
+                recognition.stop();
+            }
+        };
+
+        function handlePeke() {
+            isResetting = true;
+            resultDisplay.classList.add('blink');
+
+            setTimeout(() => {
+                resultDisplay.classList.add('fade-out');
+            }, 1000);
+
+            setTimeout(() => {
+                clearDisplay();
+                resultDisplay.classList.remove('blink', 'fade-out');
+                isResetting = false;
+                recognition.stop();
+            }, 2500);
+        }
+    </script>
+</body>
+</html>
