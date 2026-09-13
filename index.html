@@ -1,119 +1,153 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>家族の会話モニター</title>
+    <meta charset="UTF-8">
+    <title>家族の会話モニター（ペケ対応版）</title>
+    <style>
+        body {
+            background-color: #2b2c2f;
+            color: #f0f0f0;
+            font-family: "Hiragino Sans", "Meiryo", sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            transition: background-color 0.3s;
+            overflow: hidden;
+        }
+        body.on-mode { background-color: #1a2a3a; }
 
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        background-color: #f9f9f9;
-    }
-    h1 {
-        text-align: center;
-    }
-    #output {
-        margin-top: 20px;
-        padding: 15px;
-        background-color: #fff;
-        border-radius: 8px;
-        min-height: 150px;
-        border: 1px solid #ccc;
-        font-size: 40px;
-        line-height: 1.4;
-    }
-    #startButton {
-        display: block;
-        margin: 20px auto;
-        padding: 12px 20px;
-        font-size: 18px;
-    }
-    #log {
-        margin-top: 10px;
-        font-size: 14px;
-        color: #666;
-    }
-</style>
+        #main-area {
+            flex: 1; display: flex; align-items: flex-start;
+            justify-content: center; padding-top: 10vh;
+        }
+
+        #result-text {
+            font-size: 4.5vw; font-weight: bold; text-align: left;
+            line-height: 1.7; width: 85%; height: 8.5em;
+            word-break: break-all; overflow: hidden;
+            transition: opacity 1.5s; /* フェードアウト用 */
+        }
+
+        /* 点滅アニメーションの設定 */
+        .blink {
+            animation: blink-animation 0.5s steps(5, start) 3;
+        }
+        @keyframes blink-animation {
+            to { visibility: hidden; }
+        }
+
+        /* フェードアウト中の透明度 */
+        .fade-out { opacity: 0; }
+
+        #status {
+            position: fixed; top: 20px; right: 20px; font-size: 1.5rem;
+            padding: 15px 30px; border-radius: 12px; font-weight: bold;
+        }
+        .listening { background-color: #ff4757; color: #fff; box-shadow: 0 0 20px rgba(255,71,87,0.5); }
+        .waiting { background-color: #57606f; color: #ced6e0; }
+
+        /* 左下のガイド表示 */
+        #guide {
+            position: fixed; bottom: 20px; left: 20px; color: #888;
+            font-size: 1rem; border-left: 3px solid #555; padding-left: 10px;
+        }
+    </style>
 </head>
+<body id="bg">
 
-<body>
-<h1>家族の会話モニター</h1>
+    <div id="status" class="waiting">お休み中</div>
+    <div id="guide">※間違いは「ペケ」と言うと消去されます</div>
+    <div id="main-area"><div id="result-text"></div></div>
 
-<button id="startButton">音声認識を開始</button>
+    <script src="dictionary.js"></script>
 
-<div id="output"></div>
-<div id="log"></div>
+    <script>
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = true;
+        recognition.continuous = true;
 
-<script src="dictionary.js"></script>
+        const resultDisplay = document.getElementById('result-text');
+        const statusDisplay = document.getElementById('status');
+        const bg = document.getElementById('bg');
 
-<script>
-const output = document.getElementById("output");
-const log = document.getElementById("log");
-const startButton = document.getElementById("startButton");
+        let isListening = false;
+        let isResetting = false; // 「ペケ」実行中のフラグ
 
-let recognition;
-let isRunning = false;
+        const toggle = () => {
+            if (isListening) { isListening = false; recognition.stop(); }
+            else { isListening = true; recognition.start(); }
+        };
 
-if ("webkitSpeechRecognition" in window) {
-    recognition = new webkitSpeechRecognition();
-    recognition.lang = "ja-JP";
-    recognition.continuous = true;
-    recognition.interimResults = true;
+        // マウス操作：ワイヤレスマウスのリモコン化
+        window.onmousedown = (e) => { e.preventDefault(); toggle(); };
+        window.oncontextmenu = (e) => { e.preventDefault(); };
+        window.onkeydown = (e) => { if(['Space', 'Enter', 'PageUp', 'PageDown'].includes(e.code)) toggle(); };
 
-    recognition.onresult = (event) => {
-        let text = "";
-        for (let i = 0; i < event.results.length; i++) {
-            text += event.results[i][0].transcript;
-        }
+        recognition.onstart = () => {
+            isListening = true;
+            statusDisplay.innerText = "文字を出しています";
+            statusDisplay.className = "listening";
+            bg.className = "on-mode";
+            resultDisplay.innerText = "";
+            resultDisplay.classList.remove('blink', 'fade-out');
+            isResetting = false;
+        };
 
-        // ペケと言ったら消去
-        if (text.includes("ペケ")) {
-            output.textContent = "";
-            return;
-        }
-
-        // 辞書変換（あなたの dictionary.js をそのまま利用）
-        if (typeof replaceWords === "function") {
-            text = replaceWords(text);
-        }
-
-        output.textContent = text;
-    };
-
-    recognition.onerror = (event) => {
-        log.textContent = "エラー: " + event.error;
-    };
-
-    /* 🔥 強制再起動ロジック（今回の追加部分） */
-    recognition.onend = () => {
-        log.textContent = "音声認識が終了 → 強制再起動します";
-
-        setTimeout(() => {
-            try {
-                recognition.start();
-            } catch (e) {
-                log.textContent = "再起動失敗 → 再試行します";
-                setTimeout(() => recognition.start(), 1000);
+        recognition.onend = () => {
+            if (isListening) { recognition.start(); }
+            else {
+                statusDisplay.innerText = "お休み中";
+                statusDisplay.className = "waiting";
+                bg.className = "";
             }
-        }, 300);
-    };
+        };
 
-} else {
-    alert("このブラウザは音声認識に対応していません。Chromeを使用してください。");
-}
+        recognition.onresult = (event) => {
+            if (isResetting) return; // リセット中は何もしない
 
-startButton.addEventListener("click", () => {
-    if (!isRunning) {
-        recognition.start();
-        isRunning = true;
-        log.textContent = "音声認識を開始しました";
-    } else {
-        log.textContent = "すでに音声認識は動作中です";
-    }
-});
-</script>
+            let transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript = event.results[i][0].transcript;
+            }
 
+            // 「ペケ」という言葉が含まれているかチェック
+            if (transcript.includes("ペケ") || transcript.includes("ぺけ")) {
+                handlePeke();
+                return;
+            }
+
+            // 辞書による置換
+            if (typeof customDictionary !== 'undefined') {
+                Object.keys(customDictionary).forEach(key => {
+                    transcript = transcript.replace(new RegExp(key, 'g'), customDictionary[key]);
+                });
+            }
+
+            resultDisplay.innerText = transcript;
+
+            if (resultDisplay.scrollHeight > resultDisplay.clientHeight) {
+                resultDisplay.innerText = ""; recognition.stop();
+            }
+        };
+
+        // 「ペケ」が言われた時の処理
+        function handlePeke() {
+            isResetting = true;
+            resultDisplay.classList.add('blink'); // 点滅開始
+
+            setTimeout(() => {
+                resultDisplay.classList.add('fade-out'); // フェードアウト開始
+            }, 1000); // 1秒点滅させた後に消え始める
+
+            setTimeout(() => {
+                resultDisplay.innerText = "";
+                resultDisplay.classList.remove('blink', 'fade-out');
+                isResetting = false;
+                recognition.stop(); // 一度止めてリセット
+            }, 2500); // 合計2.5秒後に完全消去
+        }
+    </script>
 </body>
 </html>
