@@ -1,96 +1,119 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>家族の会話モニター（ペケ対応版）</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家族の会話モニター（ペケ対応版）</title>
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f9f9f9;
-        }
-        h1 {
-            text-align: center;
-        }
-        #output {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #fff;
-            border-radius: 8px;
-            min-height: 150px;
-            border: 1px solid #ccc;
-        }
-        #startButton {
-            display: block;
-            margin: 20px auto;
-            padding: 12px 20px;
-            font-size: 18px;
-        }
-        #log {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #666;
-        }
-    </style>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f9f9f9;
+    }
+    h1 {
+        text-align: center;
+    }
+    #output {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #fff;
+        border-radius: 8px;
+        min-height: 150px;
+        border: 1px solid #ccc;
+        font-size: 40px;
+        line-height: 1.4;
+    }
+    #startButton {
+        display: block;
+        margin: 20px auto;
+        padding: 12px 20px;
+        font-size: 18px;
+    }
+    #log {
+        margin-top: 10px;
+        font-size: 14px;
+        color: #666;
+    }
+</style>
 </head>
 
 <body>
-    <h1>家族の会話モニター（ペケ対応版）</h1>
+<h1>家族の会話モニター（ペケ対応版）</h1>
 
-    <button id="startButton">音声認識を開始</button>
+<button id="startButton">音声認識を開始</button>
 
-    <div id="output"></div>
-    <div id="log"></div>
+<div id="output"></div>
+<div id="log"></div>
 
-    <script>
-        const output = document.getElementById("output");
-        const log = document.getElementById("log");
-        const startButton = document.getElementById("startButton");
+<script src="dictionary.js"></script>
 
-        let recognition;
-        let isRunning = false;
+<script>
+const output = document.getElementById("output");
+const log = document.getElementById("log");
+const startButton = document.getElementById("startButton");
 
-        if ("webkitSpeechRecognition" in window) {
-            recognition = new webkitSpeechRecognition();
-            recognition.lang = "ja-JP";
-            recognition.continuous = true;        // 無音でも止まりにくくする
-            recognition.interimResults = true;    // 途中結果も取得
+let recognition;
+let isRunning = false;
 
-            recognition.onresult = (event) => {
-                let text = "";
-                for (let i = 0; i < event.results.length; i++) {
-                    text += event.results[i][0].transcript;
-                }
-                output.textContent = text;
-            };
+if ("webkitSpeechRecognition" in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.lang = "ja-JP";
+    recognition.continuous = true;
+    recognition.interimResults = true;
 
-            recognition.onerror = (event) => {
-                log.textContent = "エラー: " + event.error;
-            };
-
-            // 🔥 最重要：止まったら自動で再起動
-            recognition.onend = () => {
-                log.textContent = "音声認識が終了 → 自動再起動します";
-                if (isRunning) {
-                    recognition.start();
-                }
-            };
-
-        } else {
-            alert("このブラウザは音声認識に対応していません。Chromeを使用してください。");
+    recognition.onresult = (event) => {
+        let text = "";
+        for (let i = 0; i < event.results.length; i++) {
+            text += event.results[i][0].transcript;
         }
 
-        startButton.addEventListener("click", () => {
-            if (!isRunning) {
+        // ペケと言ったら消去
+        if (text.includes("ペケ")) {
+            output.textContent = "";
+            return;
+        }
+
+        // 辞書変換（あなたの dictionary.js をそのまま利用）
+        if (typeof replaceWords === "function") {
+            text = replaceWords(text);
+        }
+
+        output.textContent = text;
+    };
+
+    recognition.onerror = (event) => {
+        log.textContent = "エラー: " + event.error;
+    };
+
+    /* 🔥 強制再起動ロジック（今回の追加部分） */
+    recognition.onend = () => {
+        log.textContent = "音声認識が終了 → 強制再起動します";
+
+        setTimeout(() => {
+            try {
                 recognition.start();
-                isRunning = true;
-                log.textContent = "音声認識を開始しました";
-            } else {
-                log.textContent = "すでに音声認識は動作中です";
+            } catch (e) {
+                log.textContent = "再起動失敗 → 再試行します";
+                setTimeout(() => recognition.start(), 1000);
             }
-        });
-    </script>
+        }, 300);
+    };
+
+} else {
+    alert("このブラウザは音声認識に対応していません。Chromeを使用してください。");
+}
+
+startButton.addEventListener("click", () => {
+    if (!isRunning) {
+        recognition.start();
+        isRunning = true;
+        log.textContent = "音声認識を開始しました";
+    } else {
+        log.textContent = "すでに音声認識は動作中です";
+    }
+});
+</script>
+
 </body>
 </html>
